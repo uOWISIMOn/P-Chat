@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-GUIDE_VERSION = 3
+GUIDE_VERSION = 4
 
 
 FIRST_RUN_GUIDE_ZH = """
@@ -16,18 +16,13 @@ P-Chat 使用指南
 4. 找到房间后会自动加入；如果一直找不到，可以自己创建房间。
 5. 直接输入文字并回车即可发送消息。
 6. 常用命令：
-   /help           查看命令
-   /users          查看在线用户
-   /history        查看聊天记录
-   /sync           同步最近消息
-   /wifi           查看当前 Wi-Fi 和候选 Wi-Fi
-   /translate on   开启中文到日文翻译
-   /translate off  关闭翻译
-   /quit           退出程序
-
-默认会连接 LibreTranslate 公共实例：
-- https://zh.libretranslate.com/
-- 如需 API key，可用 /translate key <API_KEY> 保存本机 key
+   /help      查看命令
+   /users     查看在线用户
+   /history   查看聊天记录
+   /sync      同步最近消息
+   /wifi      查看当前 Wi-Fi 和候选 Wi-Fi
+   /undo      撤回自己最近一条消息
+   /quit      退出程序
 
 程序数据保存在 pc.exe 同目录下的 .pchat 文件夹中。
 删除 pc.exe 和 .pchat 即可清理程序数据。
@@ -48,18 +43,13 @@ P-Chat Quick Guide
 4. If a room is found, P-Chat joins automatically. If none is found, you can create one.
 5. Type text directly to send chat messages.
 6. Common commands:
-   /help             Show commands
-   /users            Show online users
-   /history          Show local chat history
-   /sync             Sync recent messages
-   /wifi             Show current Wi-Fi and saved visible candidates
-   /translate on     Enable Chinese -> Japanese translation
-   /translate off    Disable translation
-   /quit             Quit
-
-LibreTranslate public instance is used by default:
-- https://zh.libretranslate.com/
-- If your instance requires a key, run /translate key <API_KEY>
+   /help      Show commands
+   /users     Show online users
+   /history   Show local chat history
+   /sync      Sync recent messages
+   /wifi      Show current Wi-Fi and saved visible candidates
+   /undo      Withdraw your latest message
+   /quit      Quit
 
 Program data is stored in the .pchat folder beside pc.exe.
 Delete pc.exe and .pchat to clean up P-Chat.

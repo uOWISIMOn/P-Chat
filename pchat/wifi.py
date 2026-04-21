@@ -8,6 +8,9 @@ import time
 from .models import WifiCandidate, WifiStatus, WifiSwitchResult
 
 
+_MAC_RE = re.compile(r"^[0-9A-Fa-f]{2}(?:[-:][0-9A-Fa-f]{2}){5}$")
+
+
 def _run_netsh(args: list[str]) -> tuple[int, str]:
     try:
         completed = subprocess.run(
@@ -45,12 +48,13 @@ def list_saved_profiles() -> list[str]:
         return []
     profiles: list[str] = []
     for raw_line in output.splitlines():
-        line = raw_line.strip()
-        match = re.search(r"(?:All User Profile|Current User Profile)\s*:\s*(.+)$", line, flags=re.IGNORECASE)
-        if match is None:
+        if not raw_line[:1].isspace() or ":" not in raw_line:
             continue
-        ssid = match.group(1).strip()
-        if ssid and ssid not in profiles:
+        _, value = raw_line.split(":", 1)
+        ssid = value.strip()
+        if not ssid:
+            continue
+        if ssid not in profiles:
             profiles.append(ssid)
     return profiles
 
@@ -63,12 +67,13 @@ def list_visible_networks() -> list[str]:
         return []
     visible: list[str] = []
     for raw_line in output.splitlines():
-        line = raw_line.strip()
-        match = re.match(r"^SSID\s+\d+\s*:\s*(.*)$", line, flags=re.IGNORECASE)
+        match = re.match(r"^\s*[^:]*\d+\s*:\s*(.*)$", raw_line)
         if match is None:
             continue
         ssid = match.group(1).strip()
-        if ssid and ssid not in visible:
+        if not ssid or _MAC_RE.match(ssid):
+            continue
+        if ssid not in visible:
             visible.append(ssid)
     return visible
 

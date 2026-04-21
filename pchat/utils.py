@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import html
 import json
 import os
-import re
 import socket
 import sys
 import uuid
@@ -53,10 +51,6 @@ def format_message(row: dict[str, Any], *, current_user: str | None = None) -> s
 
 def format_message_block(row: dict[str, Any], *, current_user: str | None = None) -> str:
     return format_message(row, current_user=current_user) + "\n"
-
-
-def format_translation_block(text: str, *, label: str = "JP") -> str:
-    return f"[{label}] {text}\n"
 
 
 def ensure_hidden_on_windows(path: Path) -> None:
@@ -136,14 +130,3 @@ async def read_json(reader: asyncio.StreamReader) -> dict[str, Any] | None:
 def safe_filename(name: str) -> str:
     cleaned = "".join(ch for ch in name if ch not in '<>:"/\\|?*').strip()
     return cleaned or "file"
-
-
-_CHINESE_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
-
-
-def contains_chinese(text: str) -> bool:
-    return bool(_CHINESE_RE.search(text))
-
-
-def html_unescape(text: str) -> str:
-    return html.unescape(text)

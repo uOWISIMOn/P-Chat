@@ -11,9 +11,8 @@ from .constants import CHAT_ACK_TIMEOUT, CONTROL_PORT, HOST_TIMEOUT
 from .models import RoomInfo
 from .storage import Storage
 from .tls_util import create_client_ssl_context
-from .translate import TranslationError, TranslatorClient
 from .ui import ChatUI
-from .utils import contains_chinese, format_message_block, format_translation_block, new_uuid, now_iso, read_json, sha256_file, write_json
+from .utils import format_message_block, new_uuid, now_iso, read_json, sha256_file, write_json
 
 
 class PChatClient:
@@ -50,9 +49,6 @@ class PChatClient:
         self.on_unread = on_unread
         self.on_host_failed = on_host_failed
         self.watchdog_task: asyncio.Task[None] | None = None
-        self.translator = TranslatorClient(config)
-        self.translation_cache: dict[str, str] = {}
-        self.translation_tasks: set[asyncio.Task[None]] = set()
 
     async def connect(self) -> None:
         ssl_context = create_client_ssl_context()
@@ -96,14 +92,6 @@ class PChatClient:
             self.watchdog_task.cancel()
             try:
                 await self.watchdog_task
-            except asyncio.CancelledError:
-                pass
-        tasks = list(self.translation_tasks)
-        for task in tasks:
-            task.cancel()
-        for task in tasks:
-            try:
-                await task
             except asyncio.CancelledError:
                 pass
 
@@ -274,7 +262,6 @@ class PChatClient:
                 self.ui.print("[SYSTEM] Recent messages:")
                 for message in messages:
                     self.ui.print(format_message_block(message, current_user=self.config.username))
-                    self._schedule_translation(message)
             else:
                 self.ui.print("[SYSTEM] No recent messages.")
             self.initial_sync_done = True
@@ -292,53 +279,8 @@ class PChatClient:
         if not inserted:
             return
         self.ui.print(format_message_block(payload, current_user=self.config.username))
-        self._schedule_translation(payload)
         if str(payload.get("sender", "")) != self.config.username and self.on_unread is not None:
             self.on_unread()
-
-    def _schedule_translation(self, payload: dict[str, Any]) -> None:
-        if not self.config.translation_enabled:
-            return
-        if str(payload.get("sender", "")) == self.config.username:
-            return
-        content = str(payload.get("content", ""))
-        if not content or int(payload.get("withdrawn", 0)) or not contains_chinese(content):
-            return
-        message_uuid = str(payload.get("message_uuid", ""))
-        if not message_uuid:
-            return
-        cached = self.translation_cache.get(message_uuid)
-        if cached:
-            self.ui.print(format_translation_block(cached))
-            return
-        task = asyncio.create_task(self._translate_and_display(message_uuid, content))
-        self.translation_tasks.add(task)
-        task.add_done_callback(self.translation_tasks.discard)
-
-    async def _translate_and_display(self, message_uuid: str, content: str) -> None:
-        try:
-            translated = await asyncio.to_thread(self.translator.translate_zh_to_ja, content)
-        except TranslationError as exc:
-            self.ui.print(f"[SYSTEM] Translation failed: {exc}")
-            return
-        except Exception as exc:
-            self.ui.print(f"[SYSTEM] Translation failed: {exc}")
-            return
-        self.translation_cache[message_uuid] = translated
-        self.ui.print(format_translation_block(translated))
-
-    def translation_status(self) -> str:
-        if not self.config.translation_enabled:
-            return "off"
-        if not self.translator.configured():
-            return "on (missing API URL)"
-        return "on (LibreTranslate zh -> ja)"
-
-    def set_translation_enabled(self, enabled: bool) -> tuple[bool, str]:
-        if enabled and not self.translator.configured():
-            return False, "LibreTranslate API URL is not configured."
-        self.config.translation_enabled = enabled
-        return True, f"Translation {'enabled' if enabled else 'disabled'}."
 
     def _handle_announcement(self, payload: dict[str, Any]) -> None:
         version = int(payload.get("version", 0) or 0)

@@ -16,12 +16,9 @@ from .discovery import DiscoveryResponder
 from .http_update import UpdateHttpServer
 from .storage import Storage
 from .tls_util import create_server_ssl_context
-from .translate import TranslationError, TranslatorClient
 from .ui import ChatUI
 from .utils import (
-    contains_chinese,
     format_message_block,
-    format_translation_block,
     get_lan_ip,
     get_local_ip_for_peer,
     new_uuid,
@@ -76,9 +73,6 @@ class PChatServer:
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._hourly_task: asyncio.Task[None] | None = None
         self._stopping = False
-        self.translator = TranslatorClient(config)
-        self.translation_cache: dict[str, str] = {}
-        self.translation_tasks: set[asyncio.Task[None]] = set()
 
     async def start(self) -> None:
         try:
@@ -123,14 +117,6 @@ class PChatServer:
             except asyncio.CancelledError:
                 pass
             self._hourly_task = None
-        tasks = list(self.translation_tasks)
-        for task in tasks:
-            task.cancel()
-        for task in tasks:
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
         for session in list(self.clients.values()):
             await self._close_session(session)
         self.clients.clear()
@@ -189,7 +175,6 @@ class PChatServer:
         )
         self.host_last_message_uuid = message["message_uuid"]
         self.ui.print(format_message_block(message, current_user=self.config.username))
-        self._schedule_translation(message)
         await self._broadcast(message)
 
     async def undo_host_message(self) -> None:
@@ -352,52 +337,9 @@ class PChatServer:
         await self._send(session, {"type": "chat_ack", "message_uuid": message["message_uuid"], "ok": True})
         session.last_message_uuid = message["message_uuid"]
         self.ui.print(format_message_block(message, current_user=self.config.username))
-        self._schedule_translation(message)
         if self.on_unread is not None:
             self.on_unread()
         await self._broadcast(message)
-
-    def _schedule_translation(self, payload: dict[str, Any]) -> None:
-        if not self.config.translation_enabled:
-            return
-        content = str(payload.get("content", ""))
-        if not content or int(payload.get("withdrawn", 0)) or not contains_chinese(content):
-            return
-        message_uuid = str(payload.get("message_uuid", ""))
-        if not message_uuid:
-            return
-        cached = self.translation_cache.get(message_uuid)
-        if cached:
-            self.ui.print(format_translation_block(cached))
-            return
-        task = asyncio.create_task(self._translate_and_display(message_uuid, content))
-        self.translation_tasks.add(task)
-        task.add_done_callback(self.translation_tasks.discard)
-
-    async def _translate_and_display(self, message_uuid: str, content: str) -> None:
-        try:
-            translated = await asyncio.to_thread(self.translator.translate_zh_to_ja, content)
-        except TranslationError as exc:
-            self.ui.print(f"[SYSTEM] Translation failed: {exc}")
-            return
-        except Exception as exc:
-            self.ui.print(f"[SYSTEM] Translation failed: {exc}")
-            return
-        self.translation_cache[message_uuid] = translated
-        self.ui.print(format_translation_block(translated))
-
-    def translation_status(self) -> str:
-        if not self.config.translation_enabled:
-            return "off"
-        if not self.translator.configured():
-            return "on (missing API URL)"
-        return "on (LibreTranslate zh -> ja)"
-
-    def set_translation_enabled(self, enabled: bool) -> tuple[bool, str]:
-        if enabled and not self.translator.configured():
-            return False, "LibreTranslate API URL is not configured."
-        self.config.translation_enabled = enabled
-        return True, f"Translation {'enabled' if enabled else 'disabled'}."
 
     async def _handle_nick(self, session: ClientSession, payload: dict[str, Any]) -> None:
         new_name = str(payload.get("username") or "").strip()[:32]
