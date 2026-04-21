@@ -15,6 +15,7 @@ COMMANDS = [
     "/history",
     "/status",
     "/wifi",
+    "/translate",
     "/reconnect",
     "/create",
     "/leave",
@@ -68,6 +69,18 @@ class CommandProcessor:
             self.app.show_status()
         elif lower in {"/wifi", "/pc wifi"}:
             self.app.show_wifi()
+        elif lower == "/translate":
+            self.app.toggle_translate()
+        elif lower == "/translate status":
+            self.app.show_translate_status()
+        elif lower == "/translate on":
+            self.app.translate_on()
+        elif lower == "/translate off":
+            self.app.translate_off()
+        elif lower.startswith("/translate key "):
+            self.app.set_translate_key(line[len("/translate key ") :].strip())
+        elif lower == "/translate clear-key":
+            self.app.clear_translate_key()
         elif lower == "/reconnect":
             await self.app.reconnect()
         elif lower == "/create":

@@ -42,6 +42,9 @@ class ConfigManager:
             "last_seen_program_version": APP_VERSION,
             "first_run_guide_version": 0,
             "client_id": "",
+            "translation_enabled": False,
+            "translation_api_key": "",
+            "translation_api_url": "https://zh.libretranslate.com/translate",
         }
 
     def load(self) -> dict[str, Any]:
@@ -120,3 +123,30 @@ class ConfigManager:
             self.data["client_id"] = value
             self.save()
         return value
+
+    @property
+    def translation_enabled(self) -> bool:
+        return bool(self.data.get("translation_enabled", False))
+
+    @translation_enabled.setter
+    def translation_enabled(self, value: bool) -> None:
+        self.data["translation_enabled"] = bool(value)
+        self.save()
+
+    @property
+    def translation_api_key(self) -> str:
+        return str(self.data.get("translation_api_key", "")).strip()
+
+    @translation_api_key.setter
+    def translation_api_key(self, value: str) -> None:
+        self.data["translation_api_key"] = value.strip()
+        self.save()
+
+    @property
+    def translation_api_url(self) -> str:
+        return str(self.data.get("translation_api_url", "https://zh.libretranslate.com/translate")).strip()
+
+    @translation_api_url.setter
+    def translation_api_url(self, value: str) -> None:
+        self.data["translation_api_url"] = value.strip()
+        self.save()

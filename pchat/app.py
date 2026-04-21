@@ -493,6 +493,7 @@ class PChatApp:
         self.ui.print(f"Users     : {users}")
         self.ui.print(f"Epoch     : {self.room_epoch}")
         self.ui.print(f"Host ID   : {self.host_id or '-'}")
+        self.ui.print(f"Translate : {self._translation_status_text()}")
         self.ui.print(f"Version   : {APP_VERSION}")
 
     def show_wifi(self) -> None:
@@ -509,6 +510,67 @@ class PChatApp:
                 self.ui.print(f"- {candidate.ssid}")
         else:
             self.ui.print("Saved + visible: none")
+
+    def show_translate_status(self) -> None:
+        assert self.ui is not None
+        self.ui.print(f"Translate : {self._translation_status_text()}")
+        if self.mode == "Idle":
+            self.ui.print("[SYSTEM] Translation only affects local message display after joining or hosting a room.")
+
+    def toggle_translate(self) -> None:
+        if self.config.translation_enabled:
+            self.translate_off()
+        else:
+            self.translate_on()
+
+    def translate_on(self) -> None:
+        assert self.ui is not None
+        if self.mode == "Client" and self.client is not None:
+            ok, message = self.client.set_translation_enabled(True)
+            self.ui.print(f"[SYSTEM] {message}")
+            return
+        if self.mode == "Host" and self.server is not None:
+            ok, message = self.server.set_translation_enabled(True)
+            self.ui.print(f"[SYSTEM] {message}")
+            return
+        self.config.translation_enabled = True
+        self.ui.print("[SYSTEM] Translation will apply after this machine joins or hosts a room.")
+
+    def translate_off(self) -> None:
+        assert self.ui is not None
+        if self.mode == "Client" and self.client is not None:
+            ok, message = self.client.set_translation_enabled(False)
+            self.ui.print(f"[SYSTEM] {message}")
+            return
+        if self.mode == "Host" and self.server is not None:
+            ok, message = self.server.set_translation_enabled(False)
+            self.ui.print(f"[SYSTEM] {message}")
+            return
+        self.config.translation_enabled = False
+        self.ui.print("[SYSTEM] Translation disabled.")
+
+    def set_translate_key(self, api_key: str) -> None:
+        assert self.ui is not None
+        api_key = api_key.strip()
+        if not api_key:
+            self.ui.print("Usage: /translate key <API_KEY>")
+            return
+        self.config.translation_api_key = api_key
+        self.ui.print("[SYSTEM] LibreTranslate API key saved to local config.")
+
+    def clear_translate_key(self) -> None:
+        assert self.ui is not None
+        self.config.translation_api_key = ""
+        self.ui.print("[SYSTEM] LibreTranslate API key cleared from local config.")
+
+    def _translation_status_text(self) -> str:
+        if self.mode == "Client" and self.client is not None:
+            return self.client.translation_status()
+        if self.mode == "Host" and self.server is not None:
+            return self.server.translation_status()
+        if self.config.translation_enabled:
+            return "on (inactive until room join/host)"
+        return "off"
 
     async def reconnect(self) -> None:
         await self.leave_room()
@@ -629,7 +691,7 @@ class PChatApp:
         assert self.ui is not None
         self.ui.print("P-Chat commands:")
         self.ui.print("/help, /guide, /sync, /nick <name>, /undo, /users, /history [n], /status")
-        self.ui.print("/wifi")
+        self.ui.print("/wifi, /translate on|off|status|key <API_KEY>|clear-key")
         self.ui.print("/reconnect, /create, /leave, /export, /clear, /quit")
         self.ui.print("/announce show | set <text> | rollback | history")
         self.ui.print("/update, /update check, /update notes, /update apply, /update publish <file> [version] [notes]")
