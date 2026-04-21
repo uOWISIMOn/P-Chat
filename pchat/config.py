@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .constants import APP_VERSION, CONFIG_FILE, DATABASE_FILE, DEFAULT_TARGET_SSID
+from .constants import APP_VERSION, CONFIG_FILE, DATABASE_FILE
 from .guide import GUIDE_VERSION
 from .utils import data_dir, ensure_hidden_on_windows, new_uuid
 
@@ -37,7 +37,6 @@ class ConfigManager:
     def default_config(self) -> dict[str, Any]:
         return {
             "username": "",
-            "target_ssid": DEFAULT_TARGET_SSID,
             "last_server_ip": "",
             "last_seen_announcement_version": 0,
             "last_seen_program_version": APP_VERSION,
@@ -76,23 +75,6 @@ class ConfigManager:
     @username.setter
     def username(self, value: str) -> None:
         self.data["username"] = value.strip()
-        self.save()
-
-    @property
-    def target_ssid(self) -> str:
-        return str(self.data.get("target_ssid", DEFAULT_TARGET_SSID)).strip() or DEFAULT_TARGET_SSID
-
-    @target_ssid.setter
-    def target_ssid(self, value: str) -> None:
-        self.data["target_ssid"] = value.strip()
-        self.save()
-
-    @property
-    def built_in_target_ssid(self) -> str:
-        return DEFAULT_TARGET_SSID.strip()
-
-    def reset_target_ssid(self) -> None:
-        self.data["target_ssid"] = DEFAULT_TARGET_SSID
         self.save()
 
     @property

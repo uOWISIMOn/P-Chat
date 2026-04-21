@@ -18,7 +18,7 @@ from .storage import Storage
 from .tray import TrayNotifier
 from .ui import ChatUI
 from .utils import format_message_block, get_lan_ip, now_iso
-from .wifi import connect_to_ssid, get_wifi_status
+from .wifi import connect_to_ssid, get_wifi_status, list_saved_visible_networks
 
 
 class PChatApp:
@@ -49,7 +49,6 @@ class PChatApp:
         await self._start_election()
         self._show_first_run_guide()
         self._show_start_banner()
-        await self._check_wifi_prompt()
         await self.discover_and_join_or_create()
         await self.ui.input_loop(self.commands.handle)
         await self.shutdown()
@@ -142,55 +141,144 @@ class PChatApp:
         assert self.ui is not None
         self.ui.print("====================================")
         self.ui.print("P-Chat")
-        self.ui.print(f"Target Wi-Fi : {self.config.target_ssid or 'not set'}")
         self.ui.print("Use /help for commands")
         self.ui.print("Checking network...")
         self.ui.print("====================================")
 
-    async def _check_wifi_prompt(self) -> None:
-        assert self.ui is not None
-        if not self.config.target_ssid:
-            self.ui.print("[SYSTEM] Target Wi-Fi is not set. Type /wifi set <SSID> to enable startup Wi-Fi switching.")
-            return
-        status = await asyncio.to_thread(get_wifi_status, self.config.target_ssid)
-        if not status.available:
-            self.ui.print(f"[SYSTEM] {status.message}")
-            return
-        if status.connected:
-            self.ui.print(f"[SYSTEM] Wi-Fi OK: {status.current_ssid}")
-            return
-        self.ui.print(f"Current Wi-Fi: {status.current_ssid or 'unknown'}")
-        self.ui.print(f"Target Wi-Fi : {self.config.target_ssid}")
-        answer = (await self.ui.prompt_text("Try to switch Wi-Fi? (y/n)\n> ")).strip().lower()
-        if answer != "y":
-            return
-        result = await asyncio.to_thread(connect_to_ssid, self.config.target_ssid)
-        if result.ok:
-            self.ui.print(f"[SYSTEM] {result.message}")
-            return
-        self.ui.print("Switch failed.")
-        self.ui.print(result.message)
-        self.ui.print(
-            f"Please connect to {self.config.target_ssid} manually in Windows Wi-Fi settings, then restart or type /reconnect."
-        )
-
     async def discover_and_join_or_create(self) -> None:
         assert self.ui is not None
-        self.ui.print("[SYSTEM] Searching for room...")
-        rooms = await discover_rooms()
-        if rooms:
-            room = rooms[0]
-            self.ui.print(f"[SYSTEM] Found room {room.room_name} at {room.host_ip}:{room.chat_port}.")
-            try:
-                await self.join_room(room)
-                return
-            except Exception as exc:
-                self.ui.print(f"[SYSTEM] Join failed: {exc}")
-        answer = (await self.ui.prompt_text("No room found on current network.\nCreate one? (y/n)\n> ")).strip().lower()
+        if await self._scan_current_network_for_room():
+            return
+        await self._handle_no_room_found()
+
+    async def _scan_current_network_for_room(self) -> bool:
+        assert self.ui is not None
+        status = await asyncio.to_thread(get_wifi_status)
+        current = status.current_ssid or "unknown Wi-Fi"
+        self.ui.print(f"[SYSTEM] Searching for room on {current}...")
+        room = await self._discover_room()
+        if room is None:
+            return False
+        return await self._join_discovered_room(room)
+
+    async def _discover_room(self, timeout: float = 2.0) -> RoomInfo | None:
+        rooms = await discover_rooms(timeout=timeout)
+        if not rooms:
+            return None
+        return rooms[0]
+
+    async def _join_discovered_room(self, room: RoomInfo) -> bool:
+        assert self.ui is not None
+        self.ui.print(f"[SYSTEM] Found room {room.room_name} at {room.host_ip}:{room.chat_port}.")
+        try:
+            await self.join_room(room)
+            return True
+        except Exception as exc:
+            self.ui.print(f"[SYSTEM] Join failed: {exc}")
+            return False
+
+    async def _handle_no_room_found(self) -> None:
+        assert self.ui is not None
+        while True:
+            choice = (
+                await self.ui.prompt_text(
+                    "No room found on current Wi-Fi.\n"
+                    "1. Scan saved Wi-Fi networks for rooms (will disconnect current network)\n"
+                    "2. Show saved Wi-Fi candidates and choose one manually\n"
+                    "3. Skip Wi-Fi switching\n"
+                    "> "
+                )
+            ).strip()
+            if choice == "1":
+                if await self._scan_saved_wifi_for_rooms():
+                    return
+                break
+            if choice == "2":
+                if await self._choose_wifi_and_scan():
+                    return
+                break
+            if choice in {"3", "", "skip"}:
+                break
+            self.ui.print("[SYSTEM] Enter 1, 2, or 3.")
+        answer = (await self.ui.prompt_text("Create one on current network? (y/n)\n> ")).strip().lower()
         if answer == "y":
             await self.create_room()
         else:
             self.ui.print("[SYSTEM] Not in a room. Type /reconnect or /create.")
+
+    async def _scan_saved_wifi_for_rooms(self) -> bool:
+        assert self.ui is not None
+        status = await asyncio.to_thread(get_wifi_status)
+        original_ssid = status.current_ssid
+        candidates = await asyncio.to_thread(list_saved_visible_networks, exclude=original_ssid)
+        if not candidates:
+            self.ui.print("[SYSTEM] No other saved and visible Wi-Fi networks are available.")
+            return False
+        proceed = (
+            await self.ui.prompt_text(
+                "Switching Wi-Fi will interrupt your current network connection.\nContinue? (y/n)\n> "
+            )
+        ).strip().lower()
+        if proceed != "y":
+            return False
+        for index, candidate in enumerate(candidates, start=1):
+            self.ui.print(f"[SYSTEM] Trying Wi-Fi {index}/{len(candidates)}: {candidate.ssid}")
+            result = await asyncio.to_thread(connect_to_ssid, candidate.ssid)
+            self.ui.print(f"[SYSTEM] {result.message}")
+            if not result.ok:
+                continue
+            room = await self._discover_room()
+            if room is None:
+                continue
+            return await self._join_discovered_room(room)
+        if original_ssid:
+            self.ui.print(f"[SYSTEM] No room found. Reconnecting to {original_ssid}...")
+            result = await asyncio.to_thread(connect_to_ssid, original_ssid)
+            self.ui.print(f"[SYSTEM] {result.message}")
+        self.ui.print("[SYSTEM] No room found on saved Wi-Fi candidates.")
+        return False
+
+    async def _choose_wifi_and_scan(self) -> bool:
+        assert self.ui is not None
+        status = await asyncio.to_thread(get_wifi_status)
+        original_ssid = status.current_ssid
+        candidates = await asyncio.to_thread(list_saved_visible_networks, exclude=original_ssid)
+        if not candidates:
+            self.ui.print("[SYSTEM] No other saved and visible Wi-Fi networks are available.")
+            return False
+        self.ui.print("[SYSTEM] Saved and visible Wi-Fi:")
+        for index, candidate in enumerate(candidates, start=1):
+            self.ui.print(f"{index}. {candidate.ssid}")
+        choice = (await self.ui.prompt_text("Select Wi-Fi number, or 0 to cancel:\n> ")).strip()
+        if not choice.isdigit():
+            self.ui.print("[SYSTEM] Cancelled.")
+            return False
+        selected = int(choice)
+        if selected == 0:
+            return False
+        if selected < 1 or selected > len(candidates):
+            self.ui.print("[SYSTEM] Invalid selection.")
+            return False
+        target = candidates[selected - 1].ssid
+        proceed = (
+            await self.ui.prompt_text(f"Connect to {target}? This may disconnect your current network. (y/n)\n> ")
+        ).strip().lower()
+        if proceed != "y":
+            return False
+        result = await asyncio.to_thread(connect_to_ssid, target)
+        self.ui.print(f"[SYSTEM] {result.message}")
+        if not result.ok:
+            return False
+        room = await self._discover_room()
+        if room is not None:
+            return await self._join_discovered_room(room)
+        self.ui.print(f"[SYSTEM] No room found on {target}.")
+        if original_ssid:
+            restore = (await self.ui.prompt_text(f"Reconnect to {original_ssid}? (y/n)\n> ")).strip().lower()
+            if restore == "y":
+                restore_result = await asyncio.to_thread(connect_to_ssid, original_ssid)
+                self.ui.print(f"[SYSTEM] {restore_result.message}")
+        return False
 
     async def join_room(self, room: RoomInfo) -> None:
         assert self.storage is not None and self.ui is not None
@@ -380,7 +468,7 @@ class PChatApp:
 
     def show_status(self) -> None:
         assert self.ui is not None
-        wifi = get_wifi_status(self.config.target_ssid)
+        wifi = get_wifi_status()
         server_addr = "-"
         http_addr = "-"
         users = 0
@@ -399,7 +487,6 @@ class PChatApp:
         self.ui.print(f"Mode      : {self.mode}")
         self.ui.print(f"Username  : {self.config.username}")
         self.ui.print(f"Wi-Fi     : {wifi.current_ssid or 'unknown'}")
-        self.ui.print(f"Target    : {self.config.target_ssid or 'not set'}")
         self.ui.print(f"Server    : {server_addr}")
         self.ui.print(f"HTTP      : {http_addr}")
         self.ui.print(f"Room      : {room}")
@@ -410,32 +497,21 @@ class PChatApp:
 
     def show_wifi(self) -> None:
         assert self.ui is not None
-        status = get_wifi_status(self.config.target_ssid)
+        status = get_wifi_status()
+        candidates = list_saved_visible_networks(exclude=status.current_ssid)
         self.ui.print(f"Current Wi-Fi: {status.current_ssid or 'unknown'}")
-        self.ui.print(f"Target Wi-Fi : {status.target_ssid or 'not set'}")
-        self.ui.print(f"Built-in     : {self.config.built_in_target_ssid or 'not set'}")
-        self.ui.print(f"Status       : {'OK' if status.connected else 'Not target'}")
+        self.ui.print(f"Wi-Fi API    : {'ready' if status.available else 'unavailable'}")
         if status.message:
             self.ui.print(status.message)
-
-    def set_wifi_target(self, ssid: str) -> None:
-        assert self.ui is not None
-        ssid = ssid.strip().strip('"')[:32]
-        if not ssid:
-            self.ui.print("Usage: /wifi set <SSID>")
-            return
-        self.config.target_ssid = ssid
-        self.ui.print(f"[SYSTEM] Startup target Wi-Fi set to: {ssid}")
-        self.ui.print("[SYSTEM] Type /reconnect to switch and reconnect now.")
-
-    def reset_wifi_target(self) -> None:
-        assert self.ui is not None
-        self.config.reset_target_ssid()
-        self.ui.print(f"[SYSTEM] Startup target Wi-Fi reset to built-in default: {self.config.target_ssid or 'not set'}")
+        if candidates:
+            self.ui.print("Saved + visible:")
+            for candidate in candidates:
+                self.ui.print(f"- {candidate.ssid}")
+        else:
+            self.ui.print("Saved + visible: none")
 
     async def reconnect(self) -> None:
         await self.leave_room()
-        await self._check_wifi_prompt()
         await self.discover_and_join_or_create()
 
     async def leave_room(self) -> None:
@@ -553,7 +629,7 @@ class PChatApp:
         assert self.ui is not None
         self.ui.print("P-Chat commands:")
         self.ui.print("/help, /guide, /sync, /nick <name>, /undo, /users, /history [n], /status")
-        self.ui.print("/wifi, /wifi set <SSID>, /wifi reset")
+        self.ui.print("/wifi")
         self.ui.print("/reconnect, /create, /leave, /export, /clear, /quit")
         self.ui.print("/announce show | set <text> | rollback | history")
         self.ui.print("/update, /update check, /update notes, /update apply, /update publish <file> [version] [notes]")

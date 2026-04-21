@@ -8,7 +8,6 @@ DATA_DIR_NAME = ".pchat"
 CONFIG_FILE = "config.json"
 DATABASE_FILE = "data.db"
 
-DEFAULT_TARGET_SSID = "" #默认SSID*#
 DEFAULT_ROOM_NAME = "main"
 
 DISCOVERY_MAGIC = "PCHAT_DISCOVER_V1"

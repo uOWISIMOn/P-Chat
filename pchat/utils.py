@@ -45,7 +45,7 @@ def format_message(row: dict[str, Any], *, current_user: str | None = None) -> s
     timestamp = format_time(str(row.get("created_at", "")))
     sender = str(row.get("sender", "?"))
     if current_user and sender == current_user:
-        return f"[{timestamp}] [you] {sender}"
+        return f"[{timestamp}] [you] {sender}: {content}"
     return f"[{timestamp}] {sender}: {content}"
 
 

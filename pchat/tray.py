@@ -99,6 +99,8 @@ class TrayNotifier:
             hwnd = self._console_window()
             if hwnd and self._is_minimized(hwnd):
                 self.hide_window()
+            elif hwnd and self._is_visible(hwnd) and self._is_foreground(hwnd):
+                self.clear_unread()
 
     def _console_window(self) -> int:
         try:
@@ -121,6 +123,22 @@ class TrayNotifier:
             import ctypes
 
             return bool(ctypes.windll.user32.IsIconic(hwnd))
+        except Exception:
+            return False
+
+    def _is_visible(self, hwnd: int) -> bool:
+        try:
+            import ctypes
+
+            return bool(ctypes.windll.user32.IsWindowVisible(hwnd))
+        except Exception:
+            return False
+
+    def _is_foreground(self, hwnd: int) -> bool:
+        try:
+            import ctypes
+
+            return int(ctypes.windll.user32.GetForegroundWindow()) == hwnd
         except Exception:
             return False
 

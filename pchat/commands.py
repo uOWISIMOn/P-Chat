@@ -66,12 +66,6 @@ class CommandProcessor:
             self.app.show_history(self._history_limit(line))
         elif lower in {"/status", "/pc status"}:
             self.app.show_status()
-        elif lower.startswith("/wifi set "):
-            self.app.set_wifi_target(line[len("/wifi set ") :].strip())
-        elif lower.startswith("/pc wifi set "):
-            self.app.set_wifi_target(line[len("/pc wifi set ") :].strip())
-        elif lower in {"/wifi reset", "/pc wifi reset"}:
-            self.app.reset_wifi_target()
         elif lower in {"/wifi", "/pc wifi"}:
             self.app.show_wifi()
         elif lower == "/reconnect":

@@ -5,7 +5,7 @@ import re
 import subprocess
 import time
 
-from .models import WifiStatus, WifiSwitchResult
+from .models import WifiCandidate, WifiStatus, WifiSwitchResult
 
 
 def _run_netsh(args: list[str]) -> tuple[int, str]:
@@ -37,21 +37,63 @@ def get_current_ssid() -> str:
     return ""
 
 
+def list_saved_profiles() -> list[str]:
+    if os.name != "nt":
+        return []
+    code, output = _run_netsh(["wlan", "show", "profiles"])
+    if code != 0:
+        return []
+    profiles: list[str] = []
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        match = re.search(r"(?:All User Profile|Current User Profile)\s*:\s*(.+)$", line, flags=re.IGNORECASE)
+        if match is None:
+            continue
+        ssid = match.group(1).strip()
+        if ssid and ssid not in profiles:
+            profiles.append(ssid)
+    return profiles
+
+
+def list_visible_networks() -> list[str]:
+    if os.name != "nt":
+        return []
+    code, output = _run_netsh(["wlan", "show", "networks", "mode=bssid"])
+    if code != 0:
+        return []
+    visible: list[str] = []
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        match = re.match(r"^SSID\s+\d+\s*:\s*(.*)$", line, flags=re.IGNORECASE)
+        if match is None:
+            continue
+        ssid = match.group(1).strip()
+        if ssid and ssid not in visible:
+            visible.append(ssid)
+    return visible
+
+
+def list_saved_visible_networks(*, exclude: str = "") -> list[WifiCandidate]:
+    exclude_key = exclude.strip().casefold()
+    saved = {ssid.casefold(): ssid for ssid in list_saved_profiles()}
+    visible = {ssid.casefold(): ssid for ssid in list_visible_networks()}
+    common_keys = [key for key in visible if key in saved and key != exclude_key]
+    return [
+        WifiCandidate(ssid=visible[key], saved=True, visible=True)
+        for key in sorted(common_keys, key=lambda item: visible[item].casefold())
+    ]
+
+
 def profile_exists(ssid: str) -> bool:
     if os.name != "nt":
         return False
-    code, output = _run_netsh(["wlan", "show", "profiles"])
-    if code != 0:
-        return False
-    return ssid.lower() in output.lower()
+    return ssid.casefold() in {profile.casefold() for profile in list_saved_profiles()}
 
 
-def get_wifi_status(target_ssid: str) -> WifiStatus:
+def get_wifi_status() -> WifiStatus:
     if os.name != "nt":
         return WifiStatus(
             current_ssid="",
-            target_ssid=target_ssid,
-            connected=False,
             available=False,
             message="Wi-Fi check is only available on Windows.",
         )
@@ -59,30 +101,26 @@ def get_wifi_status(target_ssid: str) -> WifiStatus:
     if not current:
         return WifiStatus(
             current_ssid="",
-            target_ssid=target_ssid,
-            connected=False,
             available=True,
             message="No active Wi-Fi SSID detected.",
         )
     return WifiStatus(
         current_ssid=current,
-        target_ssid=target_ssid,
-        connected=current == target_ssid,
         available=True,
         message="",
     )
 
 
-def connect_to_ssid(target_ssid: str) -> WifiSwitchResult:
+def connect_to_ssid(ssid: str) -> WifiSwitchResult:
     if os.name != "nt":
         return WifiSwitchResult(False, "Wi-Fi switching is only available on Windows.")
-    if not profile_exists(target_ssid):
-        return WifiSwitchResult(False, f'Windows has no saved Wi-Fi profile named "{target_ssid}".')
-    code, output = _run_netsh(["wlan", "connect", f"name={target_ssid}"])
+    if not profile_exists(ssid):
+        return WifiSwitchResult(False, f'Windows has no saved Wi-Fi profile named "{ssid}".')
+    code, output = _run_netsh(["wlan", "connect", f"name={ssid}"])
     if code != 0:
         return WifiSwitchResult(False, output.strip() or "netsh wlan connect failed.")
     time.sleep(4)
     current = get_current_ssid()
-    if current == target_ssid:
-        return WifiSwitchResult(True, f"Connected to {target_ssid}.")
+    if current == ssid:
+        return WifiSwitchResult(True, f"Connected to {ssid}.")
     return WifiSwitchResult(False, f"Connection command was sent, but current Wi-Fi is {current or 'unknown'}.")

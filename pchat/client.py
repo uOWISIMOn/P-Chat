@@ -323,6 +323,8 @@ class PChatClient:
             self.ui.print(f"[SYSTEM] {payload.get('username')} left.")
         elif event == "nick_changed":
             self.ui.print(f"[SYSTEM] {payload.get('old_username')} is now {payload.get('username')}.")
+        elif event == "hourly_time":
+            self.ui.print(f"[SYSTEM] {payload.get('text', 'Top of the hour.')}")
         else:
             self.ui.print(f"[SYSTEM] {event}")
 

@@ -34,8 +34,6 @@ class RoomInfo:
 @dataclass(slots=True)
 class WifiStatus:
     current_ssid: str
-    target_ssid: str
-    connected: bool
     available: bool
     message: str = ""
 
@@ -44,3 +42,10 @@ class WifiStatus:
 class WifiSwitchResult:
     ok: bool
     message: str
+
+
+@dataclass(slots=True)
+class WifiCandidate:
+    ssid: str
+    saved: bool = True
+    visible: bool = True

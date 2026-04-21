@@ -5,6 +5,7 @@ import re
 import shutil
 import socket
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
@@ -70,6 +71,7 @@ class PChatServer:
         self.host_id = self.config.client_id
         self._next_join_seq = 1
         self._heartbeat_task: asyncio.Task[None] | None = None
+        self._hourly_task: asyncio.Task[None] | None = None
         self._stopping = False
 
     async def start(self) -> None:
@@ -94,6 +96,7 @@ class PChatServer:
             self.http_server = UpdateHttpServer(self.config.updates_dir, port=self.http_port)
             await asyncio.to_thread(self.http_server.start)
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+            self._hourly_task = asyncio.create_task(self._hourly_broadcast_loop())
         except Exception:
             await self.stop()
             raise
@@ -107,6 +110,13 @@ class PChatServer:
             except asyncio.CancelledError:
                 pass
             self._heartbeat_task = None
+        if self._hourly_task is not None:
+            self._hourly_task.cancel()
+            try:
+                await self._hourly_task
+            except asyncio.CancelledError:
+                pass
+            self._hourly_task = None
         for session in list(self.clients.values()):
             await self._close_session(session)
         self.clients.clear()
@@ -399,6 +409,18 @@ class PChatServer:
                     "created_at": now_iso(),
                 }
             )
+
+    async def _hourly_broadcast_loop(self) -> None:
+        while not self._stopping:
+            now = datetime.now().astimezone()
+            next_hour = (now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1))
+            await asyncio.sleep(max(1.0, (next_hour - now).total_seconds()))
+            if self._stopping:
+                return
+            timestamp = next_hour.strftime("%H:%M")
+            text = f"It's now {timestamp}."
+            self.ui.print(f"[SYSTEM] {text}")
+            await self._broadcast_system("hourly_time", text=text)
 
     async def _broadcast_system(self, event: str, exclude: ClientSession | None = None, **extra: Any) -> None:
         await self._broadcast({"type": "system", "event": event, "created_at": now_iso(), **extra}, exclude=exclude)
